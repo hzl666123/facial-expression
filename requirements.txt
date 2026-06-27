@@ -1,0 +1,18 @@
+# Core
+numpy>=1.24.0
+opencv-python>=4.8.0
+Pillow>=9.5.0
+scipy>=1.10.0
+
+# Face tracking
+mediapipe>=0.10.0
+
+# Deep learning (for Phase 2 DECA)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# 3D rendering
+trimesh>=3.23.0
+pyrender>=0.1.45
+PyOpenGL>=3.1.7
+freetype-py

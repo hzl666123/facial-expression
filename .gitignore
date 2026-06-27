@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OpenCode
+.opencode/
+
+# User uploads
+uploads/
+
+# Cached data
+*.pkl
+
+# EMOCA training models (large checkpoint files)
+emoca/gdl_apps/EMOCA/models/
+emoca/gdl_apps/EmotionRecognition/models/
+
+# OS
+.DS_Store
+Thumbs.db
