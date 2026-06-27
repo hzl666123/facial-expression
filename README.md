@@ -1,9 +1,161 @@
-# Facial Expression Transfer System / 面部表情迁移系统
+# Facial Expression Tracing Demo / 面部表情追踪demo
 
-[English](#english) | [中文](#中文)
+ [中文](#中文) | [English](#english)
 
 ---
 
+<a name="中文"></a>
+
+## 中文
+
+为了检验当前模型能力边界，通过opencode实现了一套demo，能力如下：
+
+实时 3D 面部表情迁移：拍摄一张照片 → 重建带纹理的 3D 面部网格 → 通过摄像头面部关键点驱动，生成一个实时模仿你表情的 **虚拟头像**。
+
+```
+照片 ──→ [重建后端] ──→ 标准 3D 面部网格
+                              │
+摄像头 ──→ 面部追踪器 ──────→ 逐帧变形计算 ──→ pyrender 渲染 ──→ 实时头像
+```
+
+### 功能特性
+
+- **3 种重建后端**（见下表）
+- **摄像头实时驱动**，基于 MediaPipe FaceLandmarker（52 个 blendshape）
+- **PBR 物理渲染**（pyrender，metallic-roughness，双面渲染，GPU EGL）
+- **眼部几何**：视线追踪、眨眼、眼睑 blendshape、角膜凸起、虹膜 Z 轴压平
+- **视觉润色**：头发平面、牙齿块、口腔腔体、人中凹槽
+- **多视角重建**：多张照片平均 shapecode（EMOCA 后端）
+- **动态 FOV**：根据标准面部跨度自动计算
+
+### 运行环境
+
+| 项目 | 详情 |
+|------|------|
+| 操作系统 | Linux（WSL2 Ubuntu 已测试），macOS/Windows 应可用 |
+| Python | 3.10 |
+| GPU | 不需要（CPU 渲染通过 pyrender/EGL） |
+| 摄像头 | 标准 USB 摄像头（OpenCV） |
+
+### 重建后端
+
+| 后端 | 顶点/面数 | 重建方法 | 速度 |
+|------|----------|----------|------|
+| `mediapipe_subdiv`（默认） | ~6669 / ~13063 | MediaPipe 478 关键点 + Loop 细分 | 快 |
+| `flame` | 5023 / 9976 | 细分网格 → 重心坐标迁移至 FLAME 拓扑 | 快 |
+| `emoca` | ~6669 / ~13063 | EMOCA 编码器（ResNet/Swin）→ FLAME 解码 → Z 深度迁移 | 仅 CPU，约 30s |
+
+### 安装
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/hzl666123/facial-expression.git
+cd facial-expression
+
+# 2. 创建并激活虚拟环境
+python3.10 -m venv venv
+source venv/bin/activate
+
+# 3. 安装依赖
+pip install -r requirements.txt
+```
+
+**FLAME 后端**需获取 FLAME 2020 模型（`generic_model.pkl`），通过 `--flame-path` 指定路径。
+
+**EMOCA 后端**需将模型文件下载到 `emoca/assets/`（参考 `emoca/gdl_apps/EMOCA/demos/download_assets.sh`）。
+
+**Linux EGL**：项目自动加载 `libs/libGLESv2.so.2.1.0` 以支持无头渲染，建议使用 `run.py` 启动。
+
+### 使用方法
+
+```bash
+# 默认后端 (mediapipe_subdiv)
+python main.py --photo assets/test_face.png
+
+# 或使用 run.py（Linux 下自动处理 EGL）
+python run.py --photo assets/test_face.png
+
+# FLAME 后端
+python main.py --backend flame --photo assets/test_face.png \
+               --flame-path /path/to/FLAME2020/generic_model.pkl
+
+# EMOCA 后端（启动较慢）
+python main.py --backend emoca --photo assets/test_face.png
+
+# 多视角重建（更优的 3D 形状）
+python main.py --photo front.jpg left.jpg right.jpg
+
+# 自定义分辨率
+python main.py --photo assets/test_face.png --render-width 800 --render-height 800
+```
+
+#### 命令行参数
+
+| 参数 | 默认值 | 说明 |
+|----------|---------|------|
+| `--photo` / `-p` | （必填） | 人脸照片路径（可多张） |
+| `--camera` / `-c` | `0` | 摄像头设备 ID |
+| `--cam-width` | `640` | 摄像头捕获宽度 |
+| `--cam-height` | `480` | 摄像头捕获高度 |
+| `--render-width` | `1200` | 渲染窗口宽度 |
+| `--render-height` | `1200` | 渲染窗口高度 |
+| `--model` / `-m` | `models/face_landmarker.task` | MediaPipe 模型路径 |
+| `--subdiv` | `2` | Loop 细分迭代次数 |
+| `--backend` | `mediapipe_subdiv` | `mediapipe_subdiv` / `flame` / `emoca` |
+| `--flame-path` | `/mnt/f/FLAME2020/...` | FLAME `generic_model.pkl` 路径 |
+| `--eye-photo` | `None` | 外部眼部照片用于逼真眼球纹理 |
+
+### 测试
+
+```bash
+# 模块验证
+python verify.py
+
+# 集成测试（无需摄像头）
+python test_integration.py
+
+# 静态多角度渲染
+python demo_render.py --photo assets/test_face.png --output output/
+```
+
+### 项目结构
+
+```
+facial-expression/
+├── main.py                    # 入口，命令行参数解析
+├── run.py                     # 跨平台启动器（EGL 预加载）
+├── config.py                  # 默认配置
+├── verify.py                  # 模块验证
+├── test_integration.py        # 端到端集成测试
+├── demo_render.py             # 静态多角度渲染器
+├── requirements.txt           # Python 依赖
+├── models/
+│   └── face_landmarker.task   # MediaPipe 面部关键点模型
+├── assets/
+│   └── test_face.png          # 默认测试照片
+├── libs/
+│   └── libGLESv2.so.2.1.0     # 无头渲染 EGL 库
+├── emoca/                     # EMOCA 第三方库
+├── modules/
+│   ├── pipeline.py            # 主循环：捕获 → 追踪 → 变形 → 渲染
+│   ├── face_reconstructor.py  # 3D 面部重建（3 种后端）
+│   ├── flame_model.py         # FLAME 2020 模型 + 重心坐标迁移
+│   ├── renderer.py            # pyrender PBR 渲染器
+│   ├── face_tracker.py        # MediaPipe FaceLandmarker 封装
+│   ├── camera.py              # OpenCV VideoCapture 封装
+│   └── texture_provider.py    # 照片 → 纹理/UV 提取
+└── uploads/                   # 用户上传照片（已 gitignore）
+```
+
+### 已知限制
+
+1. **EMOCA 仅 CPU** — 编码约 30s，无 PyTorch3D 无法做解码可视化
+2. **牙齿/口腔静态** — 仅从照片提取，无下巴追踪
+3. **头发静态** — 仅从照片提取，无动态变化
+4. **光照固定** — 纯环境光，不跟随摄像头动态光照
+5. **网格拓扑固定** — 硬编码的顶点索引，MediaPipe 更新关键点布局后可能失效
+
+---
 <a name="english"></a>
 
 ## English
@@ -155,156 +307,6 @@ facial-expression/
 
 ---
 
-<a name="中文"></a>
-
-## 中文
-
-实时 3D 面部表情迁移：拍摄一张照片 → 重建带纹理的 3D 面部网格 → 通过摄像头面部关键点驱动，生成一个实时模仿你表情的 **虚拟头像**。
-
-```
-照片 ──→ [重建后端] ──→ 标准 3D 面部网格
-                              │
-摄像头 ──→ 面部追踪器 ──────→ 逐帧变形计算 ──→ pyrender 渲染 ──→ 实时头像
-```
-
-### 功能特性
-
-- **3 种重建后端**（见下表）
-- **摄像头实时驱动**，基于 MediaPipe FaceLandmarker（52 个 blendshape）
-- **PBR 物理渲染**（pyrender，metallic-roughness，双面渲染，GPU EGL）
-- **眼部几何**：视线追踪、眨眼、眼睑 blendshape、角膜凸起、虹膜 Z 轴压平
-- **视觉润色**：头发平面、牙齿块、口腔腔体、人中凹槽
-- **多视角重建**：多张照片平均 shapecode（EMOCA 后端）
-- **动态 FOV**：根据标准面部跨度自动计算
-
-### 运行环境
-
-| 项目 | 详情 |
-|------|------|
-| 操作系统 | Linux（WSL2 Ubuntu 已测试），macOS/Windows 应可用 |
-| Python | 3.10 |
-| GPU | 不需要（CPU 渲染通过 pyrender/EGL） |
-| 摄像头 | 标准 USB 摄像头（OpenCV） |
-
-### 重建后端
-
-| 后端 | 顶点/面数 | 重建方法 | 速度 |
-|------|----------|----------|------|
-| `mediapipe_subdiv`（默认） | ~6669 / ~13063 | MediaPipe 478 关键点 + Loop 细分 | 快 |
-| `flame` | 5023 / 9976 | 细分网格 → 重心坐标迁移至 FLAME 拓扑 | 快 |
-| `emoca` | ~6669 / ~13063 | EMOCA 编码器（ResNet/Swin）→ FLAME 解码 → Z 深度迁移 | 仅 CPU，约 30s |
-
-### 安装
-
-```bash
-# 1. 克隆仓库
-git clone https://github.com/hzl666123/facial-expression.git
-cd facial-expression
-
-# 2. 创建并激活虚拟环境
-python3.10 -m venv venv
-source venv/bin/activate
-
-# 3. 安装依赖
-pip install -r requirements.txt
-```
-
-**FLAME 后端**需获取 FLAME 2020 模型（`generic_model.pkl`），通过 `--flame-path` 指定路径。
-
-**EMOCA 后端**需将模型文件下载到 `emoca/assets/`（参考 `emoca/gdl_apps/EMOCA/demos/download_assets.sh`）。
-
-**Linux EGL**：项目自动加载 `libs/libGLESv2.so.2.1.0` 以支持无头渲染，建议使用 `run.py` 启动。
-
-### 使用方法
-
-```bash
-# 默认后端 (mediapipe_subdiv)
-python main.py --photo assets/test_face.png
-
-# 或使用 run.py（Linux 下自动处理 EGL）
-python run.py --photo assets/test_face.png
-
-# FLAME 后端
-python main.py --backend flame --photo assets/test_face.png \
-               --flame-path /path/to/FLAME2020/generic_model.pkl
-
-# EMOCA 后端（启动较慢）
-python main.py --backend emoca --photo assets/test_face.png
-
-# 多视角重建（更优的 3D 形状）
-python main.py --photo front.jpg left.jpg right.jpg
-
-# 自定义分辨率
-python main.py --photo assets/test_face.png --render-width 800 --render-height 800
-```
-
-#### 命令行参数
-
-| 参数 | 默认值 | 说明 |
-|----------|---------|------|
-| `--photo` / `-p` | （必填） | 人脸照片路径（可多张） |
-| `--camera` / `-c` | `0` | 摄像头设备 ID |
-| `--cam-width` | `640` | 摄像头捕获宽度 |
-| `--cam-height` | `480` | 摄像头捕获高度 |
-| `--render-width` | `1200` | 渲染窗口宽度 |
-| `--render-height` | `1200` | 渲染窗口高度 |
-| `--model` / `-m` | `models/face_landmarker.task` | MediaPipe 模型路径 |
-| `--subdiv` | `2` | Loop 细分迭代次数 |
-| `--backend` | `mediapipe_subdiv` | `mediapipe_subdiv` / `flame` / `emoca` |
-| `--flame-path` | `/mnt/f/FLAME2020/...` | FLAME `generic_model.pkl` 路径 |
-| `--eye-photo` | `None` | 外部眼部照片用于逼真眼球纹理 |
-
-### 测试
-
-```bash
-# 模块验证
-python verify.py
-
-# 集成测试（无需摄像头）
-python test_integration.py
-
-# 静态多角度渲染
-python demo_render.py --photo assets/test_face.png --output output/
-```
-
-### 项目结构
-
-```
-facial-expression/
-├── main.py                    # 入口，命令行参数解析
-├── run.py                     # 跨平台启动器（EGL 预加载）
-├── config.py                  # 默认配置
-├── verify.py                  # 模块验证
-├── test_integration.py        # 端到端集成测试
-├── demo_render.py             # 静态多角度渲染器
-├── requirements.txt           # Python 依赖
-├── models/
-│   └── face_landmarker.task   # MediaPipe 面部关键点模型
-├── assets/
-│   └── test_face.png          # 默认测试照片
-├── libs/
-│   └── libGLESv2.so.2.1.0     # 无头渲染 EGL 库
-├── emoca/                     # EMOCA 第三方库
-├── modules/
-│   ├── pipeline.py            # 主循环：捕获 → 追踪 → 变形 → 渲染
-│   ├── face_reconstructor.py  # 3D 面部重建（3 种后端）
-│   ├── flame_model.py         # FLAME 2020 模型 + 重心坐标迁移
-│   ├── renderer.py            # pyrender PBR 渲染器
-│   ├── face_tracker.py        # MediaPipe FaceLandmarker 封装
-│   ├── camera.py              # OpenCV VideoCapture 封装
-│   └── texture_provider.py    # 照片 → 纹理/UV 提取
-└── uploads/                   # 用户上传照片（已 gitignore）
-```
-
-### 已知限制
-
-1. **EMOCA 仅 CPU** — 编码约 30s，无 PyTorch3D 无法做解码可视化
-2. **牙齿/口腔静态** — 仅从照片提取，无下巴追踪
-3. **头发静态** — 仅从照片提取，无动态变化
-4. **光照固定** — 纯环境光，不跟随摄像头动态光照
-5. **网格拓扑固定** — 硬编码的顶点索引，MediaPipe 更新关键点布局后可能失效
-
----
 
 ## License
 
